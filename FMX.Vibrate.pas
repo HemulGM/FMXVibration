@@ -7,6 +7,8 @@ interface
 function VibrationSupported: Boolean;
 function CanCancelVibration: Boolean;
 function TryVibrate(const Duration: UInt16; const Intensity: Byte = 255): Boolean;
+// A short UI impact, independent of emulated game rumble. Frontend thread only.
+procedure TouchImpact;
 procedure CancelVibration;
 // Backwards-compatible entry point; zero duration cancels an Android effect.
 procedure Vibrate(const Duration: UInt16);
@@ -20,7 +22,7 @@ uses
   Androidapi.JNIBridge, Androidapi.JNI.JavaTypes
   {$ENDIF}
   {$IFDEF IOS}
-  , Macapi.ObjCRuntime
+  , Macapi.ObjCRuntime, iOSapi.UIKit
   {$ENDIF};
 
 {$IFDEF ANDROID}
@@ -57,7 +59,26 @@ const
 
 procedure AudioServicesPlaySystemSound(SoundID: UInt32); cdecl;
   external AudioToolboxLibrary name _PU + 'AudioServicesPlaySystemSound';
+var
+  TouchFeedback: UIImpactFeedbackGenerator;
 {$ENDIF}
+
+procedure TouchImpact;
+begin
+  {$IFDEF ANDROID}
+  TryVibrate(12, 160);
+  {$ENDIF}
+  {$IFDEF IOS}
+  try
+    if TouchFeedback = nil then
+      TouchFeedback := TUIImpactFeedbackGenerator.Wrap(
+        TUIImpactFeedbackGenerator.Alloc.initWithStyle(UIImpactFeedbackStyleLight));
+    TouchFeedback.impactOccurred;
+  except
+    // Missing haptics must never interfere with touch input.
+  end;
+  {$ENDIF}
+end;
 
 function VibrationSupported: Boolean;
 begin
@@ -149,5 +170,13 @@ procedure Vibrate(const Duration: UInt16);
 begin
   TryVibrate(Duration);
 end;
+
+{$IFDEF IOS}
+initialization
+finalization
+  if TouchFeedback <> nil then
+    TouchFeedback.release;
+  TouchFeedback := nil;
+{$ENDIF}
 
 end.
